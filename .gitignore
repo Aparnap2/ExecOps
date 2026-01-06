@@ -1,0 +1,71 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+tmp/
+*.log.*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.coveragerc
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Misc
+*.pem
+.cache/
+.temp/
+temp/
+
+# Prisma
+prisma/migrations/
+
+# Next.js
+.next/
+out/
+build/
+
+# Turborepo
+.turbo/

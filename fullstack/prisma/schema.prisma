@@ -1,0 +1,77 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Normalized events from Slack, Gmail, Stripe, HubSpot
+model Event {
+  id          String   @id @default(uuid())
+  source      String   // slack, gmail, stripe, hubspot
+  occurred_at DateTime
+  external_id String?  // ID from source system
+  payload     Json     // Normalized event data
+  created_at  DateTime @default(now())
+
+  @@index([source, occurred_at])
+}
+
+// Decision requests and responses
+model Decision {
+  id                   String   @id @default(uuid())
+  request_id           String   @unique
+  objective            String   // lead_hygiene, support_triage, ops_hygiene, all
+  state                String   // CONFIDENT, UNCERTAIN, ESCALATE
+  summary              String
+  confidence           Float
+  confidence_breakdown Json?
+  recommendations      Json?
+  escalations          Json?
+  executed_sops        String[]
+  created_at           DateTime @default(now())
+
+  @@index([objective, state])
+}
+
+// Escalation items requiring human review
+model Escalation {
+  id          String   @id @default(uuid())
+  decision_id String
+  reason      String
+  severity    String   // high, medium, low
+  context     Json
+  state       String   @default("pending") // pending, acknowledged, resolved
+  created_at  DateTime @default(now())
+
+  @@index([state, severity])
+}
+
+// Daily decision briefs/summaries
+model DailyBrief {
+  id        String   @id @default(uuid())
+  date      DateTime @db.Date
+  summary   String
+  decisions Json     // Array of decision IDs
+  state     String   // CONFIDENT, UNCERTAIN, ESCALATE
+  created_at DateTime @default(now())
+
+  @@unique([date])
+}
+
+// Audit log for all actions
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String   // event_ingested, decision_made, action_executed
+  entity_type String   // event, decision, escalation
+  entity_id   String
+  payload     Json
+  created_at  DateTime @default(now())
+
+  @@index([entity_type, action])
+}
