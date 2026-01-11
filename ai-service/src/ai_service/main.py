@@ -1,7 +1,7 @@
 """
 Main FastAPI application for AI Service.
 
-Exposes LangGraph SOP workflows via REST API.
+Exposes LangGraph SOP workflows and GitHub Sentinel via REST API.
 """
 
 import logging
@@ -14,6 +14,9 @@ from fastapi.responses import JSONResponse
 
 from .schemas.sop import DecisionRequest, DecisionResponse
 from .graphs.sop_graph import SopState, create_sop_graph, sop_router
+
+# Import new GitHub Sentinel endpoints
+from .integrations.webhook import router as webhook_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -28,14 +31,15 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     logger.info("Starting AI Service...")
     logger.info("SOP graphs loaded and ready")
+    logger.info("GitHub Sentinel webhook endpoint ready")
     yield
     logger.info("Shutting down AI Service...")
 
 
 app = FastAPI(
     title="FounderOS AI Service",
-    description="Agentic SOP automation for SaaS founders",
-    version="0.1.0",
+    description="Agentic SOP automation and GitHub Sentinel for SaaS founders",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -47,6 +51,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include GitHub Sentinel webhook router
+app.include_router(webhook_router, prefix="/api/v1")
 
 
 @app.get("/health")
@@ -156,6 +163,21 @@ async def list_sops() -> dict[str, Any]:
                 "trigger": "daily",
             },
         ]
+    }
+
+
+@app.get("/sentinel/status")
+async def sentinel_status() -> dict[str, Any]:
+    """Get GitHub Sentinel status."""
+    return {
+        "status": "ready",
+        "features": [
+            "temporal_memory",
+            "semantic_search",
+            "policy_enforcement",
+        ],
+        "supported_events": ["pull_request"],
+        "actions": ["block", "warn", "approve"],
     }
 
 

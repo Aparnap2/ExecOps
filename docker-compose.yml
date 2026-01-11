@@ -1,6 +1,7 @@
 version: "3.8"
 
 services:
+  # PostgreSQL with pgvector for vector search + LangFuse
   postgres:
     image: postgres:16-alpine
     container_name: founderos-postgres
@@ -12,12 +13,14 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U founderos -d founderos"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # Redis for caching and session storage
   redis:
     image: redis:7-alpine
     container_name: founderos-redis
@@ -31,6 +34,55 @@ services:
       timeout: 5s
       retries: 5
 
+  # Neo4j for Temporal Knowledge Graph (Graphiti)
+  neo4j:
+    image: neo4j:5.14
+    container_name: founderos-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/founderos_secret
+      NEO4J_PLUGINS: apoc,gds
+      NEO4J_server.default_listen_address: 0.0.0.0
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "founderos_secret", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # LangFuse for observability (commented out - requires ClickHouse)
+  # langfuse:
+  #   image: langfuse/langfuse:3
+  #   container_name: founderos-langfuse
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     DATABASE_URL: postgresql://founderos:founderos_secret@postgres:5432/founderos
+  #     CLICKHOUSE_URL: clickhouse://clickhouse:8123/default
+  #     NEXTAUTH_SECRET: founderos-secret-key-change-in-prod
+  #     NEXTAUTH_URL: http://localhost:3000
+  #     LANGFUSE_SERVER_PORT: 3000
+  #     LANGFUSE_SERVER_HOST: 0.0.0.0
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/public"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  default:
+    name: founderos-network
+    driver: bridge
+
 volumes:
   postgres_data:
   redis_data:
+  neo4j_data:
+  neo4j_logs:

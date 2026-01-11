@@ -1,7 +1,7 @@
 [project]
 name = "ai_service"
-version = "0.1.0"
-description = "Agentic AI SOP automation service for SaaS founders"
+version = "0.2.0"
+description = "Agentic AI SOP automation and GitHub Sentinel for SaaS founders"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,11 +9,20 @@ dependencies = [
     "uvicorn>=0.32.0",
     "langgraph>=0.2.0",
     "langchain-openai>=0.2.0",
+    "langchain-postgres>=0.0.1,<0.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "redis>=5.2.0",
     "httpx>=0.28.0",
     "python-json-logger>=3.2.0",
+    # Graphiti for temporal knowledge graph
+    "graphiti-core>=0.1.0",
+    # LangFuse for observability
+    "langfuse>=2.0.0",
+    # PostgreSQL adapter
+    "psycopg[binary]>=3.2.0",
+    # AWS Lambda adapter
+    "mangum>=0.20.0",
 ]
 
 [project.optional-dependencies]
@@ -23,10 +32,21 @@ dev = [
     "pytest-cov>=6.0.0",
     "mypy>=1.14.0",
     "ruff>=0.8.0",
+    "locust>=2.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
 
 [build-system]
 requires = ["hatchling"]

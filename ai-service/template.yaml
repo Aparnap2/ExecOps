@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  FounderOS AI Service - GitHub Sentinel with Temporal Memory
+
+  Features:
+  - GitHub webhook handler for PR policy enforcement
+  - Temporal memory using Graphiti + Neo4j
+  - Semantic search using PostgreSQL + pgvector
+  - LangGraph agent orchestration
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Tracing: Active
+    Environment:
+      Variables:
+        PYTHONPATH: /var/task
+        LOG_LEVEL: INFO
+
+Resources:
+  # Main Lambda Function
+  FounderOSFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: FounderOS-GitHubSentinel
+      CodeUri: .
+      Handler: ai_service.main.handler
+      Description: GitHub Sentinel with temporal memory
+      Policies:
+        - arn:aws:lambda:::layer:AWSLambdaPowertoolsPythonV3:75  # Powertools
+      Events:
+        GitHubWebhook:
+          Type: Api
+          Properties:
+            Path: /webhook/github
+            Method: post
+            RestApiId: !Ref ApiGateway
+
+        SentinelStatus:
+          Type: Api
+          Properties:
+            Path: /sentinel/status
+            Method: get
+            RestApiId: !Ref ApiGateway
+
+        HealthCheck:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: get
+            RestApiId: !Ref ApiGateway
+
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSSDKPandas-Python312:18"
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: FounderOS-API
+      StageName: prod
+      BinaryMediaTypes:
+        - "*/*"
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods:
+          - "GET"
+          - "POST"
+          - "OPTIONS"
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+
+  # VPC for private database access (optional)
+  # Uncomment if using private RDS/Aurora
+  # FounderOSVPC:
+  #   Type: AWS::EC2::VPC
+  #   Properties:
+  #     CidrBlock: 10.0.0.0/16
+  #     EnableDnsHostnames: true
+  #     EnableDnsSupport: true
+  #     Tags:
+  #       - Key: Name
+  #         Value: FounderOS-VPC
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/webhook/github"
+
+  ApiGatewayId:
+    Description: API Gateway ID
+    Value: !Ref ApiGateway
+
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt FounderOSFunction.Arn
+
+  FunctionName:
+    Description: Lambda Function Name
+    Value: !Ref FounderOSFunction
