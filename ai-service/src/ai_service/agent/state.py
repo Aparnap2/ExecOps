@@ -48,6 +48,26 @@ class Violation(TypedDict):
     line_numbers: list[int] | None
 
 
+class DiffFile(TypedDict):
+    """A file changed in the PR."""
+
+    filename: str
+    status: str  # "added", "modified", "deleted"
+    additions: int
+    deletions: int
+    patch: str | None  # Unified diff format
+    language: str | None
+
+
+class PolicyRecommendation(TypedDict):
+    """A recommendation for fixing a policy violation."""
+
+    violation_type: str
+    description: str
+    action: str  # Concrete action to take
+    priority: str  # "high", "medium", "low"
+
+
 class AgentState(TypedDict):
     """State that flows through the Sentinel agent graph.
 
@@ -64,8 +84,13 @@ class AgentState(TypedDict):
     temporal_policies: list[PolicyMatch]  # From Neo4j/Graphiti
     similar_contexts: list[ContextMatch]  # From pgvector
 
+    # === Diff Analysis ===
+    diff_files: list[DiffFile]  # Parsed diff files
+    diff_error: str | None  # Error fetching diff
+
     # === Analysis Results ===
     violations: list[Violation]
+    recommendations: list[PolicyRecommendation]
     should_block: bool
     should_warn: bool
     blocking_message: str | None
@@ -101,7 +126,10 @@ def create_initial_state(
         pr_info=None,
         temporal_policies=[],
         similar_contexts=[],
+        diff_files=[],
+        diff_error=None,
         violations=[],
+        recommendations=[],
         should_block=False,
         should_warn=False,
         blocking_message=None,

@@ -53,8 +53,8 @@ class SemanticMemory:
         self._connection_string = connection_string
 
         self._vector_store = PGVector(
-            connection_string=connection_string,
-            embedding_function=self._embeddings,
+            embeddings=self._embeddings,
+            connection=connection_string,
             collection_name=collection_name,
             pre_delete_collection=False,  # Preserve existing data
         )
@@ -94,7 +94,7 @@ class SemanticMemory:
             },
         )
 
-        ids = self._vector_store.add_documents([doc])
+        ids = await self._vector_store.add_documents([doc])
         logger.info(f"Ingested message from '{speaker}' with ID: {ids[0]}")
         return ids
 
@@ -128,7 +128,7 @@ class SemanticMemory:
             },
         )
 
-        ids = self._vector_store.add_documents([doc])
+        ids = await self._vector_store.add_documents([doc])
         logger.info(
             f"Ingested {context_type} context with ID: {ids[0]}"
         )
@@ -156,7 +156,7 @@ class SemanticMemory:
         if filter_metadata:
             search_kwargs["filter"] = filter_metadata
 
-        docs = self._vector_store.similarity_search(query, **search_kwargs)
+        docs = await self._vector_store.similarity_search(query, **search_kwargs)
 
         matches: list[ContextMatch] = []
         for doc in docs:
@@ -232,7 +232,7 @@ class SemanticMemory:
         """Get the underlying PGVector store for advanced usage."""
         return self._vector_store
 
-    def delete_collection(self) -> None:
+    async def delete_collection(self) -> None:
         """Delete the vector collection (use with caution)."""
-        self._vector_store.delete_collection()
+        await self._vector_store.delete_collection()
         logger.info(f"Collection '{self._collection_name}' deleted")
