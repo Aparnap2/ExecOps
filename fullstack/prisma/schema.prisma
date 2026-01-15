@@ -1,5 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// ExecOps Prisma Schema
+// Pivot from "Daily Briefs" to "Action Proposals"
+// Generated for FounderOS -> ExecOps refactor
 
 generator client {
   provider = "prisma-client-js"
@@ -10,19 +11,64 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Normalized events from Slack, Gmail, Stripe, HubSpot
+// ============================================================================
+// EXECOPS: Events Table (Enhanced)
+// ============================================================================
+// Normalized events from Slack, Gmail, Stripe, HubSpot, Sentry, GitHub
 model Event {
   id          String   @id @default(uuid())
-  source      String   // slack, gmail, stripe, hubspot
+  source      String   // slack, gmail, stripe, hubspot, sentry, github
+  source_type String?  // Specific source type: pull_request, invoice, error, ticket
   occurred_at DateTime
-  external_id String?  // ID from source system
+  external_id String?  // ID from source system (e.g., GH PR #123, Stripe in_xxx)
   payload     Json     // Normalized event data
+  processed   Boolean  @default(false)  // Has this been processed by an agent?
   created_at  DateTime @default(now())
 
-  @@index([source, occurred_at])
+  // Relations
+  action_proposals ActionProposal[]
+
+  @@index([source, source_type, occurred_at])
+  @@index([processed, occurred_at])
 }
 
-// Decision requests and responses
+// ============================================================================
+// EXECOPS: Action Proposals (NEW - replaces Decision + Escalation)
+// ============================================================================
+// Core ExecOps concept: Drafted executable actions for founder approval
+model ActionProposal {
+  id          String   @id @default(uuid())
+  status      String   @default("pending") // pending, approved, rejected, executed
+  urgency     String   // low, high, critical
+  vertical    String   // release, customer_fire, runway, team_pulse
+
+  // The Action
+  action_type String   // api_call, email, slack_dm, webhook, command
+  payload     Json     // {to: '...', body: '...', command: '...'}
+  reasoning   String   // Why this action was proposed (LLM + Rules)
+
+  // Context
+  context_summary String  // Short summary for inbox display
+  event_id     String?   // FK to source event
+  event        Event?    @relation(fields: [event_id], references: [id])
+
+  // Audit
+  created_at   DateTime @default(now())
+  approved_at  DateTime?
+  executed_at  DateTime?
+  approver_id  String?   // User who approved
+  rejection_reason String?
+
+  @@index([status, urgency])
+  @@index([vertical, created_at])
+  @@index([event_id])
+}
+
+// ============================================================================
+// LEGACY: Deprecated Tables (Keep for migration, will be removed)
+// ============================================================================
+
+// Decision requests and responses (DEPRECATED - Use ActionProposal)
 model Decision {
   id                   String   @id @default(uuid())
   request_id           String   @unique
@@ -39,7 +85,7 @@ model Decision {
   @@index([objective, state])
 }
 
-// Escalation items requiring human review
+// Escalation items requiring human review (DEPRECATED - Use ActionProposal)
 model Escalation {
   id          String   @id @default(uuid())
   decision_id String
@@ -52,7 +98,7 @@ model Escalation {
   @@index([state, severity])
 }
 
-// Daily decision briefs/summaries
+// Daily decision briefs/summaries (DEPRECATED - Use Inbox/ActionProposal)
 model DailyBrief {
   id        String   @id @default(uuid())
   date      DateTime @db.Date
@@ -64,11 +110,14 @@ model DailyBrief {
   @@unique([date])
 }
 
+// ============================================================================
+// SHARED: Audit Log (Keep)
+// ============================================================================
 // Audit log for all actions
 model AuditLog {
   id          String   @id @default(uuid())
   action      String   // event_ingested, decision_made, action_executed
-  entity_type String   // event, decision, escalation
+  entity_type String   // event, decision, escalation, action_proposal
   entity_id   String
   payload     Json
   created_at  DateTime @default(now())

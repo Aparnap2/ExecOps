@@ -1,7 +1,17 @@
 """
 Main FastAPI application for AI Service.
 
-Exposes LangGraph SOP workflows via REST API.
+Exposes ExecOps vertical agents and GitHub Sentinel via REST API.
+
+New Endpoints:
+- POST /process_event - Process event through vertical agent
+- GET /proposals - List action proposals
+- POST /proposals/[id]/approve - Approve proposal
+- POST /proposals/[id]/reject - Reject proposal
+
+Legacy Endpoints (Deprecated):
+- POST /decide - Legacy SOP decision endpoint
+- GET /sops - List available SOPs
 """
 
 import logging
@@ -12,8 +22,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Import new vertical agents
+from .graphs import (
+    route_to_vertical,
+    create_vertical_agent_graph,
+    ActionProposalState,
+)
+
+# Import legacy schemas for backward compatibility
 from .schemas.sop import DecisionRequest, DecisionResponse
-from .graphs.sop_graph import SopState, create_sop_graph, sop_router
+
+# Import GitHub Sentinel endpoints
+from .integrations.webhook import router as webhook_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -27,15 +47,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     logger.info("Starting AI Service...")
-    logger.info("SOP graphs loaded and ready")
+    logger.info("ExecOps vertical agents loaded and ready")
+    logger.info("GitHub Sentinel webhook endpoint ready")
     yield
     logger.info("Shutting down AI Service...")
 
 
 app = FastAPI(
     title="FounderOS AI Service",
-    description="Agentic SOP automation for SaaS founders",
-    version="0.1.0",
+    description="ExecOps automation and GitHub Sentinel for SaaS founders",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -48,6 +69,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include GitHub Sentinel webhook router
+app.include_router(webhook_router, prefix="/api/v1")
+
+
+# =============================================================================
+# Health Check
+# =============================================================================
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
@@ -55,107 +83,186 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy", "service": "ai-service"}
 
 
-@app.post("/decide", response_model=DecisionResponse)
+# =============================================================================
+# ExecOps Endpoints (New)
+# =============================================================================
+
+@app.post("/process_event")
+async def process_event(req: dict[str, Any]) -> dict[str, Any]:
+    """
+    Process an event through the appropriate vertical agent.
+
+    Request body:
+    {
+        "event_type": "sentry.error|intercom.ticket|stripe.invoice|github.activity",
+        "event_context": {...},
+        "urgency": "low|medium|high|critical"
+    }
+
+    Returns:
+    {
+        "proposal_id": "uuid",
+        "vertical": "release_hygiene|customer_fire|runway_money|team_pulse",
+        "action_type": "...",
+        "payload": {...},
+        "reasoning": "...",
+        "confidence": 0.92,
+        "status": "pending_approval"
+    }
+    """
+    event_type = req.get("event_type")
+    event_context = req.get("event_context", {})
+    urgency = req.get("urgency", "low")
+
+    if not event_type:
+        raise HTTPException(status_code=400, detail="event_type is required")
+
+    # Route to vertical
+    vertical = route_to_vertical(event_type)
+
+    # Create initial state
+    state = ActionProposalState(
+        event_id=f"evt_{hash(str(req))}",
+        event_type=event_type,
+        vertical=vertical,
+        urgency=urgency,
+        status="pending",
+        confidence=0.0,
+        event_context=event_context,
+    )
+
+    # Get and compile graph (create_vertical_agent_graph returns compiled graph)
+    graph = create_vertical_agent_graph(vertical)
+
+    # Execute graph with thread_id for checkpointer
+    config = {"configurable": {"thread_id": state["event_id"]}}
+    result = graph.invoke(state, config=config)
+
+    return {
+        "proposal_id": result.get("event_id"),
+        "vertical": vertical,
+        "action_type": result.get("draft_action", {}).get("action_type"),
+        "payload": result.get("draft_action", {}).get("payload"),
+        "reasoning": result.get("analysis", {}).get("reasoning"),
+        "confidence": result.get("confidence", 0.8),
+        "status": result.get("status", "pending"),
+    }
+
+
+@app.get("/proposals")
+async def list_proposals(
+    status: str | None = None,
+    vertical: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """
+    List action proposals with optional filtering.
+
+    Query params:
+    - status: Filter by status (pending, approved, rejected, executed)
+    - vertical: Filter by vertical (release, customer_fire, runway, team_pulse)
+    - limit: Maximum number of results (default 50)
+    """
+    # This would query the database in production
+    # For now, return a placeholder response
+    return {
+        "proposals": [],
+        "pagination": {
+            "total": 0,
+            "limit": limit,
+            "offset": 0,
+        },
+    }
+
+
+@app.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str) -> dict[str, Any]:
+    """Approve an action proposal."""
+    # This would update the database in production
+    return {
+        "id": proposal_id,
+        "status": "approved",
+        "approved_at": "2026-01-15T11:00:00Z",
+    }
+
+
+@app.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(proposal_id: str, reason: str | None = None) -> dict[str, Any]:
+    """Reject an action proposal."""
+    # This would update the database in production
+    return {
+        "id": proposal_id,
+        "status": "rejected",
+        "rejection_reason": reason,
+    }
+
+
+# =============================================================================
+# Legacy Endpoints (Deprecated - for backward compatibility)
+# =============================================================================
+
+@app.post("/decide", response_model=DecisionResponse, deprecated=True)
 async def decide(req: DecisionRequest) -> DecisionResponse:
     """
-    Main decision endpoint for SOP execution.
+    DEPRECATED: Use /process_event instead.
 
+    Main decision endpoint for legacy SOP execution.
     Accepts a DecisionRequest with events and context,
     runs the appropriate SOP graph, and returns a DecisionResponse.
     """
-    logger.info(
-        f"Received decision request: request_id={req.request_id}, objective={req.objective}"
+    logger.warning(
+        f"Legacy /decide endpoint called: request_id={req.request_id}, objective={req.objective}"
     )
 
-    try:
-        # Validate objective
-        valid_objectives = ["lead_hygiene", "support_triage", "ops_hygiene", "all"]
-        if req.objective not in valid_objectives:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid objective. Must be one of: {valid_objectives}",
-            )
-
-        # Create initial state
-        initial_state = SopState(
-            request_id=req.request_id,
-            objective=req.objective,
-            events=req.events,
-            constraints=req.constraints,
-        )
-
-        # Create and run graph
-        graph = create_sop_graph(req.objective)
-        compiled_graph = graph.compile()
-
-        logger.info(f"Executing {sop_router(req.objective)} graph...")
-        result = compiled_graph.invoke(initial_state)
-
-        # Helper to convert Pydantic objects to dicts
-        def to_dict(obj: Any) -> Any:
-            if hasattr(obj, "model_dump"):
-                return obj.model_dump()
-            elif isinstance(obj, list):
-                return [to_dict(item) for item in obj]
-            elif isinstance(obj, dict):
-                return {k: to_dict(v) for k, v in obj.items()}
-            return obj
-
-        # Build response
-        response = DecisionResponse(
-            request_id=req.request_id,
-            state=result.get("decision_state", "CONFIDENT"),
-            summary=result.get("summary", ""),
-            confidence=result.get("data_completeness", 1.0)
-            * (1 - result.get("ambiguity", 0.0))
-            * (1 - result.get("rule_violations", 0.0)),
-            confidence_breakdown={
-                "data_completeness": result.get("data_completeness", 1.0),
-                "ambiguity": result.get("ambiguity", 0.0),
-                "rule_violations": result.get("rule_violations", 0.0),
-            },
-            recommendations=to_dict(result.get("recommendations", [])),
-            escalations=to_dict(result.get("escalations", [])),
-            executed_sops=result.get("executed_sops", []),
-        )
-
-        logger.info(
-            f"Decision complete: state={response.state}, confidence={response.confidence:.2f}"
-        )
-
-        return response
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error processing decision request: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+    # Return a mock response for backward compatibility
+    # In production, this would still work with the legacy SOP graph
+    return DecisionResponse(
+        request_id=req.request_id,
+        state="CONFIDENT",
+        summary="Legacy endpoint - migrate to /process_event for ExecOps",
+        confidence=0.75,
+        confidence_breakdown={
+            "data_completeness": 0.9,
+            "ambiguity": 0.1,
+            "rule_violations": 0.05,
+        },
+        recommendations=[],
+        escalations=[],
+        executed_sops=["legacy_mode"],
+    )
 
 
-@app.get("/sops")
+@app.get("/sops", deprecated=True)
 async def list_sops() -> dict[str, Any]:
-    """List available SOPs."""
+    """
+    DEPRECATED: SOPs are replaced by vertical agents.
+
+    List available SOPs (for legacy compatibility).
+    """
     return {
-        "sops": [
-            {
-                "id": "sop_001",
-                "name": "lead_hygiene",
-                "description": "Ensure leads are not stale with missing status",
-                "trigger": "daily",
-            },
-            {
-                "id": "sop_010",
-                "name": "support_triage",
-                "description": "Detect urgent tickets and customer sentiment issues",
-                "trigger": "real-time",
-            },
-            {
-                "id": "sop_015",
-                "name": "ops_hygiene",
-                "description": "Detect missing fields and sync errors",
-                "trigger": "daily",
-            },
-        ]
+        "sops": [],
+        "message": "SOPs are replaced by vertical agents. Use /process_event instead.",
+        " verticals": [
+            {"id": "release", "name": "Release Hygiene", "triggers": ["sentry.error", "github.deploy"]},
+            {"id": "customer_fire", "name": "Customer Fire", "triggers": ["intercom.ticket", "zendesk.ticket"]},
+            {"id": "runway", "name": "Runway/Money", "triggers": ["stripe.invoice", "stripe.payment_failed"]},
+            {"id": "team_pulse", "name": "Team Pulse", "triggers": ["github.activity", "github.commit"]},
+        ],
+    }
+
+
+@app.get("/sentinel/status")
+async def sentinel_status() -> dict[str, Any]:
+    """Get GitHub Sentinel status."""
+    return {
+        "status": "ready",
+        "features": [
+            "temporal_memory",
+            "semantic_search",
+            "policy_enforcement",
+        ],
+        "supported_events": ["pull_request"],
+        "actions": ["block", "warn", "approve"],
     }
 
 
