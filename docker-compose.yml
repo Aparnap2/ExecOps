@@ -3,7 +3,7 @@ version: "3.8"
 services:
   # PostgreSQL with pgvector for vector search + LangFuse
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: founderos-postgres
     environment:
       POSTGRES_USER: founderos

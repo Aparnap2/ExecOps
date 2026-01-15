@@ -2,6 +2,61 @@
 
 export type DecisionState = "CONFIDENT" | "UNCERTAIN" | "ESCALATE";
 
+// =============================================================================
+// ExecOps Types (ActionProposal)
+// =============================================================================
+
+export type ActionProposalStatus = "pending" | "pending_approval" | "approved" | "rejected" | "executed";
+export type ActionUrgency = "low" | "medium" | "high" | "critical";
+export type ActionVertical = "release" | "customer_fire" | "runway" | "team_pulse";
+export type ActionType = "email" | "command" | "slack_dm" | "webhook" | "api_call";
+
+export interface ActionProposal {
+  id: string;
+  status: ActionProposalStatus;
+  urgency: ActionUrgency;
+  vertical: ActionVertical;
+  action_type: ActionType;
+  payload: Record<string, unknown>;
+  reasoning: string;
+  context_summary: string;
+  confidence: number;
+  event_id: string | null;
+  created_at: string;
+  approved_at: string | null;
+  executed_at: string | null;
+  approver_id: string | null;
+  rejection_reason: string | null;
+}
+
+export interface ActionProposalListResponse {
+  proposals: ActionProposal[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+}
+
+export interface ActionProposalCreateRequest {
+  event_type: string;
+  event_context?: Record<string, unknown>;
+  urgency?: ActionUrgency;
+}
+
+export interface ActionProposalApproveRequest {
+  approver_id?: string;
+}
+
+export interface ActionProposalRejectRequest {
+  rejection_reason?: string;
+  approver_id?: string;
+}
+
+// =============================================================================
+// Legacy FounderOS Types (Deprecated)
+// =============================================================================
+
 export interface EventPayload {
   source: "slack" | "gmail" | "stripe" | "hubspot" | "custom";
   occurred_at: string;
