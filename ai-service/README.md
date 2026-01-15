@@ -1,6 +1,6 @@
-# AI Service
+# ExecOps AI Service
 
-Agentic SOP automation service for SaaS founders.
+Active agent automation for SaaS founders. Four vertical agents handle domain-specific workflows with human-in-the-loop approval.
 
 ## Quick Start
 
@@ -12,10 +12,10 @@ uv sync
 uv pip install pytest pytest-asyncio
 
 # Run tests
-PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
+PYTHONPATH=src uv run pytest tests/ -v
 
 # Start service
-uvicorn src.main:app --host 0.0.0.0 --port 8000
+PYTHONPATH=src .venv/bin/activate && uvicorn ai_service.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Environment
@@ -24,6 +24,8 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 # .env
 OPENAI_API_KEY=sk-...
 AI_SERVICE_URL=http://localhost:8000
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_SECRET_KEY=...
 ```
 
 ## API Endpoints
@@ -33,55 +35,83 @@ AI_SERVICE_URL=http://localhost:8000
 curl http://localhost:8000/health
 ```
 
-### Decision Request
+### Process Event (Main ExecOps Endpoint)
 ```bash
-curl -X POST http://localhost:8000/decide \
+curl -X POST http://localhost:8000/process_event \
   -H "Content-Type: application/json" \
   -d '{
-    "request_id": "req_123",
-    "objective": "lead_hygiene",
-    "events": [{
-      "source": "hubspot",
-      "occurred_at": "2025-01-06T10:00:00Z",
-      "data": {"contact_id": "c1", "status": null}
-    }],
-    "constraints": {"stale_threshold_hours": 48}
+    "event_type": "stripe.payment_failed",
+    "event_context": {
+      "amount": 5000,
+      "customer_tier": "enterprise",
+      "vendor": "Acme Corp"
+    },
+    "urgency": "high"
   }'
 ```
 
-### List SOPs
+### List Action Proposals
 ```bash
-curl http://localhost:8000/sops
+curl http://localhost:8000/proposals?status=pending_approval
 ```
 
-## SOPs
+### Approve/Reject Proposal
+```bash
+curl -X POST http://localhost:8000/proposals/{id}/approve
+curl -X POST http://localhost:8000/proposals/{id}/reject -d '{"reason": "..."}'
+```
 
-| SOP | Name | Trigger | Description |
-|-----|------|---------|-------------|
-| SOP-001 | lead_hygiene | Daily | Ensure leads are not stale with missing status |
-| SOP-010 | support_triage | Real-time | Detect urgent tickets and customer sentiment issues |
-| SOP-015 | ops_hygiene | Daily | Detect missing fields and sync errors |
+## Vertical Agents
 
-## Confidence Thresholds
+| Vertical | Trigger Events | Actions |
+|----------|----------------|---------|
+| **Release Hygiene** | `sentry.error`, `github.deploy` | rollback, alert_dev |
+| **Customer Fire** | `intercom.ticket`, `zendesk.ticket` | senior_assign, apology_email |
+| **Runway/Money** | `stripe.invoice`, `stripe.payment_failed` | card_update_email, investigate |
+| **Team Pulse** | `github.commit`, `github.activity` | calendar_invite, sentiment_check |
 
-| Score | State |
-|-------|-------|
-| > 0.8 | CONFIDENT |
-| 0.5 - 0.8 | UNCERTAIN |
-| < 0.5 | ESCALATE |
+## Architecture
+
+```
+Webhooks → /process_event → Vertical Router → LangGraph StateGraph
+                                              ↓
+                              ┌────────────────┼────────────────┐
+                              ↓                ↓                ↓
+                       gather_context   draft_action   human_approval
+                              ↓                ↓                ↓
+                         [analyzed]      [drafted]       [pending_approval]
+```
+
+## Test Results
+
+```
+26 passed in 0.13s - Vertical Agent Integration Tests
+```
 
 ## Project Structure
 
 ```
 ai-service/
 ├── src/
-│   ├── main.py           # FastAPI app
+│   ├── main.py                    # FastAPI app + ExecOps endpoints
 │   ├── schemas/
-│   │   └── sop.py        # Pydantic schemas
+│   │   └── sop.py                 # Legacy schemas (deprecated)
 │   └── graphs/
-│       └── sop_graph.py  # LangGraph SOP workflows
+│       ├── vertical_agents.py     # Router + shared workflows
+│       ├── release_hygiene.py     # Release agent
+│       ├── customer_fire.py       # VIP customer agent
+│       ├── runway_money.py        # Financial agent
+│       └── team_pulse.py          # Team activity agent
 ├── tests/
-│   └── test_sop_graph.py # Unit tests
+│   └── integration/
+│       └── test_vertical_agents.py # 26 TDD tests
 ├── pyproject.toml
 └── README.md
 ```
+
+## Deprecation Notice
+
+The following endpoints are deprecated and will be removed in v1.0:
+
+- `POST /decide` - Use `/process_event` instead
+- `GET /sops` - SOPs replaced by vertical agents
