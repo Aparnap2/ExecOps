@@ -5,6 +5,8 @@ Exposes ExecOps vertical agents and GitHub Sentinel via REST API.
 
 New Endpoints:
 - POST /process_event - Process event through vertical agent
+- POST /generate_analytics - LLM-powered streaming analytics
+- GET /generate_analytics/stream - Streaming analytics via SSE
 - GET /proposals - List action proposals
 - POST /proposals/[id]/approve - Approve proposal
 - POST /proposals/[id]/reject - Reject proposal
@@ -14,13 +16,15 @@ Legacy Endpoints (Deprecated):
 - GET /sops - List available SOPs
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 
 # Import new vertical agents
 from .graphs import (
@@ -34,6 +38,10 @@ from .schemas.sop import DecisionRequest, DecisionResponse
 
 # Import GitHub Sentinel endpoints
 from .integrations.webhook import router as webhook_router
+
+# Import Generative Analytics
+from .analytics.generator import generate_analytics_stream, generate_analytics
+from .analytics.llm_router import generate_true_generative_ui_stream
 
 # Configure structured logging
 logging.basicConfig(
@@ -81,6 +89,157 @@ app.include_router(webhook_router, prefix="/api/v1")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "ai-service"}
+
+
+# =============================================================================
+# Generative Analytics Endpoints (New)
+# =============================================================================
+
+@app.post("/generate_analytics")
+async def generate_analytics_endpoint(req: dict[str, Any]) -> dict[str, Any]:
+    """
+    Generate analytics using LLM-powered reasoning.
+
+    Request body:
+    {
+        "query": "What is our runway?" | "Show me revenue metrics" | etc.
+    }
+
+    Returns complete analytics result with metrics, trends, and insights.
+    """
+    query = req.get("query")
+
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+
+    logger.info(f"Generating analytics for query: {query}")
+
+    try:
+        result = await generate_analytics(query)
+        return {
+            "query": result.query,
+            "query_type": result.query_type.value,
+            "generated_at": result.generated_at,
+            "insights": [
+                {"type": i.type, "title": i.title, "value": i.value, "context": i.context}
+                for i in result.insights
+            ],
+            "metrics": result.metrics,
+            "trends": result.trends,
+            "warnings": result.warnings,
+            "reasoning": result.reasoning,
+            "confidence": result.confidence,
+            "data_freshness": result.data_freshness,
+        }
+    except Exception as e:
+        logger.error(f"Analytics generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/generate_analytics/stream")
+async def generate_analytics_stream_endpoint(
+    request: Request,
+    query: str = "",
+) -> StreamingResponse:
+    """
+    Stream analytics results using Server-Sent Events (SSE).
+
+    Query param: ?query=What%20is%20our%20runway?
+
+    Streams progressive updates:
+    - thinking: LLM is analyzing
+    - insight: New insight discovered
+    - metrics: Metrics computed
+    - warnings: Any warnings
+    - complete: Final result
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="query parameter is required")
+
+    logger.info(f"Streaming analytics for query: {query}")
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        """Generate SSE events for streaming analytics."""
+        try:
+            async for chunk in generate_analytics_stream(query):
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+
+                yield {"event": chunk.get("type", "message"), "data": json.dumps(chunk)}
+        except Exception as e:
+            logger.error(f"Streaming analytics failed: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}),
+            }
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+# =============================================================================
+# v2 Generative UI Endpoints
+# =============================================================================
+
+@app.get("/generative_ui/stream")
+async def generative_ui_stream_endpoint(
+    request: Request,
+    query: str = "",
+) -> StreamingResponse:
+    """
+    v2 Generative UI - LLM determines which functions to call.
+
+    Query param: ?query=How%20is%20our%20team%20velocity?
+
+    This is true generative UI where:
+    1. LLM analyzes the query
+    2. Routes to appropriate analytics functions
+    3. Streams results with UI component hints
+    4. Frontend renders dynamic components based on data shape
+
+    Stream events:
+    - thinking: LLM analyzing query
+    - routing: Function routing decision
+    - function_call: Executing a function
+    - data: Function result with component hints
+    - complete: Final composed result with UI instructions
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="query parameter is required")
+
+    logger.info(f"v2 Generative UI for query: {query}")
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        """Generate SSE events for TRUE generative UI."""
+        try:
+            async for chunk in generate_true_generative_ui_stream(query):
+                if await request.is_disconnected():
+                    break
+                event_type = chunk.get("type", "message")
+                data = json.dumps(chunk)
+                yield f"event: {event_type}\ndata: {data}\n\n"
+        except Exception as e:
+            logger.error(f"v2 Generative UI failed: {e}")
+            error_data = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # =============================================================================
