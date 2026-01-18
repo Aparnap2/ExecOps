@@ -36,8 +36,11 @@ from .graphs import (
 # Import legacy schemas for backward compatibility
 from .schemas.sop import DecisionRequest, DecisionResponse
 
-# Import GitHub Sentinel endpoints
+# Import GitHub Sentinel endpoints (legacy)
 from .integrations.webhook import router as webhook_router
+
+# Import new Sentinel webhook endpoints
+from .webhooks.github import router as sentinel_webhook_router
 
 # Import Generative Analytics
 from .analytics.generator import generate_analytics_stream, generate_analytics
@@ -79,6 +82,9 @@ app.add_middleware(
 
 # Include GitHub Sentinel webhook router
 app.include_router(webhook_router, prefix="/api/v1")
+
+# Include new Sentinel webhook handler for PR review
+app.include_router(sentinel_webhook_router, prefix="/api/v1")
 
 
 # =============================================================================
