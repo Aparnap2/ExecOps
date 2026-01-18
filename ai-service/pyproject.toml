@@ -7,14 +7,19 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+    "sse-starlette>=2.0.0",
     "langgraph>=0.2.0",
     "langchain-openai>=0.2.0",
+    "langchain-ollama>=0.1.0",
     "langchain-postgres>=0.0.1,<0.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "redis>=5.2.0",
     "httpx>=0.28.0",
     "python-json-logger>=3.2.0",
+    "celery>=5.4.0",
+    # Neo4j for graph database
+    "neo4j>=5.18.0",
     # Graphiti for temporal knowledge graph
     "graphiti-core>=0.1.0",
     # LangFuse for observability
@@ -33,6 +38,7 @@ dev = [
     "mypy>=1.14.0",
     "ruff>=0.8.0",
     "locust>=2.3.0",
+    "deepeval>=1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
