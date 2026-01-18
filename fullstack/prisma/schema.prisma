@@ -49,6 +49,7 @@ model ActionProposal {
 
   // Context
   context_summary String  // Short summary for inbox display
+  confidence    Float    @default(0.8)  // 0.0 - 1.0 confidence score
   event_id     String?   // FK to source event
   event        Event?    @relation(fields: [event_id], references: [id])
 
@@ -58,6 +59,9 @@ model ActionProposal {
   executed_at  DateTime?
   approver_id  String?   // User who approved
   rejection_reason String?
+
+  // Relations
+  executions   Execution[]
 
   @@index([status, urgency])
   @@index([vertical, created_at])
@@ -111,16 +115,45 @@ model DailyBrief {
 }
 
 // ============================================================================
+// EXECOPS: Executions (NEW)
+// ============================================================================
+// Records of executed actions after approval
+model Execution {
+  id              String   @id @default(uuid())
+  proposal_id     String   // FK to ActionProposal
+  proposal        ActionProposal @relation(fields: [proposal_id], references: [id])
+
+  // Execution status
+  status          String   @default("pending") // pending, running, succeeded, failed
+  started_at      DateTime?
+  finished_at     DateTime?
+
+  // Results
+  result          Json?    // Response from external system
+  error           String?   // Error message if failed
+
+  // Idempotency
+  idempotency_key String?  @unique // Prevent duplicate executions
+
+  // Audit
+  created_at      DateTime @default(now())
+
+  @@index([proposal_id, status])
+  @@index([idempotency_key])
+}
+
+// ============================================================================
 // SHARED: Audit Log (Keep)
 // ============================================================================
 // Audit log for all actions
 model AuditLog {
   id          String   @id @default(uuid())
-  action      String   // event_ingested, decision_made, action_executed
-  entity_type String   // event, decision, escalation, action_proposal
+  action      String   // event_ingested, decision_made, action_executed, proposal_approved, proposal_rejected
+  entity_type String   // event, decision, escalation, action_proposal, execution
   entity_id   String
   payload     Json
   created_at  DateTime @default(now())
 
   @@index([entity_type, action])
+  @@index([entity_id])
 }

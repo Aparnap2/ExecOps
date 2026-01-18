@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Decision, DecisionState } from "@/lib/types";
+import type { ActionProposal } from "@/lib/types";
 
 interface ServiceStatus {
   ai: boolean;
@@ -22,42 +22,72 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function DecisionCard({ decision }: { decision: Decision }) {
-  const stateColors: Record<DecisionState, string> = {
-    CONFIDENT: "border-l-green-500",
-    UNCERTAIN: "border-l-yellow-500",
-    ESCALATE: "border-l-red-500",
+function ProposalCard({ proposal }: { proposal: ActionProposal }) {
+  const urgencyColors = {
+    low: "border-l-zinc-400",
+    medium: "border-l-blue-500",
+    high: "border-l-orange-500",
+    critical: "border-l-red-500",
+  };
+
+  const statusColors = {
+    pending: "bg-yellow-100 text-yellow-800",
+    pending_approval: "bg-yellow-100 text-yellow-800",
+    approved: "bg-green-100 text-green-800",
+    rejected: "bg-red-100 text-red-800",
+    executed: "bg-blue-100 text-blue-800",
   };
 
   return (
     <div
-      className={`p-4 bg-white dark:bg-zinc-900 rounded-lg shadow border-l-4 ${stateColors[decision.state]}`}
+      className={`p-4 bg-white dark:bg-zinc-900 rounded-lg shadow border-l-4 ${urgencyColors[proposal.urgency]}`}
     >
       <div className="flex justify-between items-start">
         <div>
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {decision.objective.replace("_", " ")}
+            {proposal.vertical.replace("_", " ")}
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            {new Date(decision.created_at).toLocaleString()}
+            {new Date(proposal.created_at).toLocaleString()}
           </p>
         </div>
-        <span
-          className={`px-2 py-1 text-xs font-semibold rounded ${
-            decision.state === "CONFIDENT"
-              ? "bg-green-100 text-green-800"
-              : decision.state === "UNCERTAIN"
-              ? "bg-yellow-100 text-yellow-800"
-              : "bg-red-100 text-red-800"
-          }`}
-        >
-          {decision.state}
-        </span>
+        <div className="flex gap-2">
+          <span
+            className={`px-2 py-1 text-xs font-semibold rounded ${statusColors[proposal.status]}`}
+          >
+            {proposal.status}
+          </span>
+          <span
+            className={`px-2 py-1 text-xs font-semibold rounded ${
+              proposal.urgency === "critical"
+                ? "bg-red-100 text-red-800"
+                : proposal.urgency === "high"
+                ? "bg-orange-100 text-orange-800"
+                : "bg-zinc-100 text-zinc-800"
+            }`}
+          >
+            {proposal.urgency}
+          </span>
+        </div>
       </div>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{decision.summary}</p>
-      <p className="mt-2 text-xs text-zinc-500">
-        Confidence: {(decision.confidence * 100).toFixed(0)}%
+      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300 line-clamp-2">
+        {proposal.context_summary || proposal.reasoning}
       </p>
+      <div className="mt-3 flex items-center justify-between">
+        <p className="text-xs text-zinc-500">
+          Confidence: {(proposal.confidence * 100).toFixed(0)}%
+        </p>
+        {proposal.status === "pending" && (
+          <div className="flex gap-2">
+            <button className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">
+              Approve
+            </button>
+            <button className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">
+              Reject
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -67,81 +97,48 @@ export default function Home() {
     ai: false,
     database: false,
   });
-  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [proposals, setProposals] = useState<ActionProposal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [testingDecision, setTestingDecision] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
 
-  // Fetch service status and decisions
+  // Fetch service status and proposals
   useEffect(() => {
     async function fetchStatus() {
       try {
         // Check AI service
-        const aiRes = await fetch("http://localhost:8000/health");
-        setServiceStatus((prev) => ({ ...prev, ai: aiRes.ok }));
+        try {
+          const aiRes = await fetch("http://localhost:8000/health");
+          setServiceStatus((prev) => ({ ...prev, ai: aiRes.ok }));
+        } catch {
+          setServiceStatus((prev) => ({ ...prev, ai: false }));
+        }
 
         // Check database via API
-        const dbRes = await fetch("http://localhost:3000/api/ai/decide");
-        setServiceStatus((prev) => ({ ...prev, database: dbRes.ok || dbRes.status === 500 }));
-
-        // Fetch decisions
-        const decisionsRes = await fetch("http://localhost:3000/api/ai/decide");
-        if (decisionsRes.ok) {
-          const data = await decisionsRes.json();
-          setDecisions(data.decisions || []);
+        try {
+          const dbRes = await fetch("http://localhost:3000/api/actions");
+          setServiceStatus((prev) => ({ ...prev, database: dbRes.ok || dbRes.status === 500 }));
+        } catch {
+          setServiceStatus((prev) => ({ ...prev, database: false }));
         }
-      } catch (error) {
-        console.error("Status check failed:", error);
+
+        // Fetch proposals
+        try {
+          const proposalsRes = await fetch("http://localhost:3000/api/actions?limit=10");
+          if (proposalsRes.ok) {
+            const data = await proposalsRes.json();
+            setProposals(data.proposals || []);
+          }
+        } catch (error) {
+          console.error("Failed to fetch proposals:", error);
+        }
       } finally {
         setLoading(false);
       }
     }
 
     fetchStatus();
-    const interval = setInterval(fetchStatus, 30000); // Refresh every 30s
+    const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, []);
-
-  // Test decision endpoint
-  async function runTestDecision() {
-    setTestingDecision(true);
-    setTestResult(null);
-
-    try {
-      const response = await fetch("http://localhost:3000/api/ai/decide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          objective: "lead_hygiene",
-          events: [
-            {
-              source: "hubspot",
-              occurred_at: new Date().toISOString(),
-              data: {
-                contact_id: "test_contact_001",
-                email: "test@example.com",
-                status: null, // Missing status - should trigger escalation
-              },
-            },
-          ],
-          constraints: { stale_threshold_hours: 48 },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      setTestResult(
-        `State: ${data.state}\nSummary: ${data.summary}\nConfidence: ${(data.confidence * 100).toFixed(0)}%\nSOPs: ${data.executed_sops?.join(", ") || "none"}`
-      );
-    } catch (error) {
-      setTestResult(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setTestingDecision(false);
-    }
-  }
 
   return (
     <main className="min-h-screen bg-zinc-50 dark:bg-black p-8">
@@ -149,12 +146,35 @@ export default function Home() {
         {/* Header */}
         <header className="mb-8">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
-            FounderOS
+            ExecOps
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400 mt-2">
-            Agentic AI automation for SaaS founders
+            Event-driven vertical agentic ops for SaaS founders
           </p>
         </header>
+
+        {/* Navigation Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <NavCard
+            href="/inbox"
+            title="Inbox"
+            description="Review and approve action proposals"
+            icon="📥"
+          />
+          <NavCard
+            href="/canvas"
+            title="Canvas"
+            description="Natural language analytics queries"
+            icon="📊"
+          />
+          <NavCard
+            href="http://localhost:8000/docs"
+            title="API Docs"
+            description="FastAPI documentation"
+            icon="📚"
+            external
+          />
+        </div>
 
         {/* Service Status */}
         <section className="mb-8">
@@ -173,68 +193,40 @@ export default function Home() {
               <p className="text-xs text-zinc-400 mt-1">PostgreSQL</p>
             </div>
             <div className="p-4 bg-white dark:bg-zinc-900 rounded-lg shadow">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Decisions</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Proposals</p>
               <span className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                {decisions.length}
+                {proposals.length}
               </span>
-              <p className="text-xs text-zinc-400 mt-1">Total processed</p>
+              <p className="text-xs text-zinc-400 mt-1">Pending review</p>
             </div>
           </div>
         </section>
 
-        {/* Quick Actions */}
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">
-            Quick Actions
-          </h2>
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={runTestDecision}
-              disabled={testingDecision || !serviceStatus.ai}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {testingDecision ? "Running..." : "Test Lead Hygiene SOP"}
-            </button>
-            <a
-              href="/events"
-              className="px-4 py-2 bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            >
-              View Events
-            </a>
-            <a
-              href="http://localhost:8000/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            >
-              API Docs
-            </a>
-          </div>
-
-          {testResult && (
-            <div className="mt-4 p-4 bg-zinc-900 text-zinc-100 rounded-lg font-mono text-sm whitespace-pre-wrap">
-              {testResult}
-            </div>
-          )}
-        </section>
-
-        {/* Recent Decisions */}
+        {/* Recent Proposals */}
         <section>
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">
-            Recent Decisions
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Recent Proposals
+            </h2>
+            <a
+              href="/inbox"
+              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+            >
+              View all →
+            </a>
+          </div>
           {loading ? (
             <p className="text-zinc-500">Loading...</p>
-          ) : decisions.length === 0 ? (
+          ) : proposals.length === 0 ? (
             <div className="p-8 text-center bg-white dark:bg-zinc-900 rounded-lg shadow">
               <p className="text-zinc-500 dark:text-zinc-400">
-                No decisions yet. Run a test to get started.
+                No proposals yet. Events will trigger action proposals.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {decisions.slice(0, 6).map((decision) => (
-                <DecisionCard key={decision.id} decision={decision} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {proposals.slice(0, 6).map((proposal) => (
+                <ProposalCard key={proposal.id} proposal={proposal} />
               ))}
             </div>
           )}
@@ -242,4 +234,40 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function NavCard({
+  href,
+  title,
+  description,
+  icon,
+  external,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  icon: string;
+  external?: boolean;
+}) {
+  const content = (
+    <div className="p-4 bg-white dark:bg-zinc-900 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer h-full">
+      <div className="flex items-center gap-3">
+        <span className="text-2xl">{icon}</span>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {content}
+      </a>
+    );
+  }
+
+  return <a href={href}>{content}</a>;
 }

@@ -93,9 +93,9 @@ export async function POST(req: NextRequest) {
         action_type: aiResult.action_type,
         payload: aiResult.payload || {},
         reasoning: aiResult.reasoning,
-        context_summary: aiResult.context_summary,
+        context_summary: aiResult.context_summary || aiResult.reasoning || "No summary provided",
         confidence: aiResult.confidence || 0.8,
-        event_id: aiResult.event_id,
+        event_id: aiResult.event_id || null,
       },
     });
 

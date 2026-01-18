@@ -7,19 +7,19 @@ Provides shared state types and human approval workflows used across all vertica
 import logging
 from typing import TypedDict, Any
 
-from ai_service.graphs.release_hygiene import (
+from .release_hygiene import (
     create_release_hygiene_graph,
     ReleaseHygieneState,
 )
-from ai_service.graphs.customer_fire import (
+from .customer_fire import (
     create_customer_fire_graph,
     CustomerFireState,
 )
-from ai_service.graphs.runway_money import (
+from .runway_money import (
     create_runway_money_graph,
     RunwayMoneyState,
 )
-from ai_service.graphs.team_pulse import (
+from .team_pulse import (
     create_team_pulse_graph,
     TeamPulseState,
 )
@@ -214,27 +214,43 @@ def human_approval_node(state: ActionProposalState) -> ActionProposalState:
 # Graph Composition Utilities
 # =============================================================================
 
-def create_vertical_agent_graph(vertical: str):
+def create_vertical_agent_graph(vertical: str, use_postgres: bool = True):
     """Create a compiled graph for the specified vertical.
 
     This is a convenience function that:
     1. Creates the vertical-specific StateGraph
-    2. Compiles with memory checkpointer for development
+    2. Compiles with checkpointer (Postgres in prod, memory in dev)
     3. Returns the compiled graph
 
     Args:
         vertical: Vertical agent name
+        use_postgres: Use Postgres checkpointer (default: True in production)
 
     Returns:
         Compiled StateGraph ready for invocation
     """
-    from langgraph.checkpoint.memory import MemorySaver
+    import os
 
     graph = get_vertical_graph(vertical)
 
-    # Use memory checkpointer for development
-    memory = MemorySaver()
-    compiled = graph.compile(checkpointer=memory)
+    # Use appropriate checkpointer
+    if use_postgres and os.getenv("USE_POSTGRES_CHECKPOINTER", "true").lower() == "true":
+        try:
+            from ai_service.infrastructure.checkpointer import get_sync_checkpointer
+
+            with get_sync_checkpointer() as checkpointer:
+                compiled = graph.compile(checkpointer=checkpointer)
+                logger.info(f"Compiled {vertical} graph with Postgres checkpointer")
+        except Exception as e:
+            logger.warning(f"Failed to use Postgres checkpointer: {e}. Falling back to memory.")
+            from langgraph.checkpoint.memory import MemorySaver
+            memory = MemorySaver()
+            compiled = graph.compile(checkpointer=memory)
+    else:
+        from langgraph.checkpoint.memory import MemorySaver
+        memory = MemorySaver()
+        compiled = graph.compile(checkpointer=memory)
+        logger.info(f"Compiled {vertical} graph with memory checkpointer")
 
     return compiled
 

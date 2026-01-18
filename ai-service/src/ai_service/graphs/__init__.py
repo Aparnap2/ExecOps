@@ -34,7 +34,7 @@ Usage:
     result = graph.invoke(initial_state)
 """
 
-from ai_service.graphs.vertical_agents import (
+from .vertical_agents import (
     ActionProposalState,
     route_to_vertical,
     get_vertical_graph,
@@ -42,22 +42,22 @@ from ai_service.graphs.vertical_agents import (
     human_approval_node,
 )
 
-from ai_service.graphs.release_hygiene import (
+from .release_hygiene import (
     ReleaseHygieneState,
     create_release_hygiene_graph,
 )
 
-from ai_service.graphs.customer_fire import (
+from .customer_fire import (
     CustomerFireState,
     create_customer_fire_graph,
 )
 
-from ai_service.graphs.runway_money import (
+from .runway_money import (
     RunwayMoneyState,
     create_runway_money_graph,
 )
 
-from ai_service.graphs.team_pulse import (
+from .team_pulse import (
     TeamPulseState,
     create_team_pulse_graph,
 )
